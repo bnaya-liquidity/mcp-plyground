@@ -1,0 +1,135 @@
+{{- if .Values.otelcol.enabled }}
+{{- $otelcol := include "mcp-playground.otelcol.fullname" . }}
+{{- $aspire := include "mcp-playground.aspire.fullname" . }}
+---
+# Mirrors .deploy/docker/otelcol-config.yaml — service names point at
+# in-cluster DNS instead of compose service aliases.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $otelcol }}
+  labels:
+    {{- include "mcp-playground.labels" . | nindent 4 }}
+    {{- include "mcp-playground.selectorLabels" (dict "ctx" . "component" "otelcol") | nindent 4 }}
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    processors:
+      memory_limiter:
+        check_interval: 5s
+        limit_mib: 256
+      batch:
+        timeout: 5s
+      filter/drop_probe_noise:
+        error_mode: ignore
+        traces:
+          span:
+            # Drop the HTTP server span for k8s liveness/readiness probes.
+            # HTTP auto-instrumentation makes every probe a span: /health/ready
+            # every 10s and /health every 20s, per pod, forever.
+            # healthTracingMiddleware in @playground/nestjs-mcp CANNOT stop
+            # these — instrumentation-http opens the server span on
+            # Server.emit('request'), before any express middleware runs, so
+            # app-side suppression only covers spans created downstream.
+            # Filtering here is the only place that works.
+            # Matches on url.path, not name: these spans are all named just
+            # "GET" (no express instrumentation -> no http.route).
+            - 'IsMatch(attributes["url.path"], "^/health")'
+    connectors:
+      spanmetrics:
+        # Flush generated metrics every 10s (default is 60s) so per-tool metrics
+        # show up promptly on the dashboard after a tool call.
+        metrics_flush_interval: 10s
+        histogram:
+          explicit:
+            buckets: [2ms, 6ms, 10ms, 100ms, 250ms, 500ms, 1s, 2s, 5s, 10s]
+        dimensions:
+          - name: mcp.tool
+          - name: mcp.endpoint
+          - name: http.status_code
+          - name: http.method
+          - name: error.type
+    exporters:
+      otlp/aspire:
+        endpoint: {{ $aspire }}:{{ .Values.aspire.service.otlp }}
+        tls:
+          insecure: true
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, filter/drop_probe_noise, batch]
+          exporters: [otlp/aspire, spanmetrics]
+        metrics:
+          receivers: [otlp, spanmetrics]
+          processors: [memory_limiter, batch]
+          exporters: [otlp/aspire]
+        logs:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [otlp/aspire]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $otelcol }}
+  labels:
+    {{- include "mcp-playground.labels" . | nindent 4 }}
+    {{- include "mcp-playground.selectorLabels" (dict "ctx" . "component" "otelcol") | nindent 4 }}
+spec:
+  selector:
+    {{- include "mcp-playground.selectorLabels" (dict "ctx" . "component" "otelcol") | nindent 4 }}
+  ports:
+    - name: otlp-grpc
+      port: {{ .Values.otelcol.service.grpc }}
+      targetPort: otlp-grpc
+    - name: otlp-http
+      port: {{ .Values.otelcol.service.http }}
+      targetPort: otlp-http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $otelcol }}
+  labels:
+    {{- include "mcp-playground.labels" . | nindent 4 }}
+    {{- include "mcp-playground.selectorLabels" (dict "ctx" . "component" "otelcol") | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "mcp-playground.selectorLabels" (dict "ctx" . "component" "otelcol") | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # Roll the pod when the collector config changes.
+        checksum/config: {{ .Values.otelcol | toYaml | sha256sum }}
+      labels:
+        {{- include "mcp-playground.selectorLabels" (dict "ctx" . "component" "otelcol") | nindent 8 }}
+    spec:
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $otelcol }}
+      containers:
+        - name: otelcol
+          image: "{{ .Values.otelcol.image.repository }}:{{ .Values.otelcol.image.tag }}"
+          imagePullPolicy: {{ .Values.otelcol.image.pullPolicy }}
+          args: ["--config=/etc/otelcol/config.yaml"]
+          ports:
+            - name: otlp-grpc
+              containerPort: 4317
+            - name: otlp-http
+              containerPort: 4318
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otelcol
+          resources:
+            {{- toYaml .Values.otelcol.resources | nindent 12 }}
+{{- end }}

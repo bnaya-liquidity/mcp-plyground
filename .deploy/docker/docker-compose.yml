@@ -1,0 +1,78 @@
+name: mcp-playground
+
+# Local stack: the MCP service plus the collector and dashboard it exports to.
+#   docker compose -f .deploy/docker/docker-compose.yml up -d --build
+# Aspire dashboard → http://localhost:18988
+# MCP endpoint     → http://localhost:3100/mcp
+#
+# HOST PORTS ARE DELIBERATELY OFF THE DEFAULTS. The usual ones (3000, 4317,
+# 4318, 18888, 18889) are what every other OTel stack binds, so this playground
+# would refuse to start whenever one of those is already up. Only the LEFT side
+# of each mapping moved; container ports are unchanged, so nothing inside the
+# stack (or in the Helm chart) has to know about this.
+
+services:
+  aspire:
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:9.3
+    container_name: mcp_playground_aspire
+    restart: unless-stopped
+    ports:
+      - "18988:18888" # Web UI
+      - "18989:18889" # OTLP gRPC (exposed for direct client use)
+    environment:
+      - DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS=true
+
+  otelcol:
+    image: otel/opentelemetry-collector-contrib:0.152.0
+    container_name: mcp_playground_otelcol
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otelcol-config.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4417:4317" # OTLP gRPC
+      - "4418:4318" # OTLP HTTP
+    depends_on:
+      aspire:
+        condition: service_started
+
+  mcp-playground:
+    build:
+      # The monorepo root: the image builds the workspace packages from source.
+      context: ../..
+      dockerfile: services/mcp-playground/Dockerfile
+    image: mcp-playground:${MCP_PLAYGROUND_TAG:-dev}
+    container_name: mcp_playground
+    restart: unless-stopped
+    depends_on:
+      otelcol:
+        condition: service_started
+    ports:
+      - "3100:3000"
+    environment:
+      - OTEL_SERVICE_NAME=mcp-playground
+      # @playground/otel-extensions picks the OTLP transport from the endpoint
+      # port: 4317 → gRPC, 4318 → HTTP. The collector listens on both.
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otelcol:4317
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://localhost:3000/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    # `docker compose watch mcp-playground` rebuilds the image and recreates the
+    # container whenever the service or its workspace packages change.
+    develop:
+      watch:
+        - action: rebuild
+          path: ../../services/mcp-playground/src
+        - action: rebuild
+          path: ../../packages
+        - action: rebuild
+          path: ../../pnpm-lock.yaml

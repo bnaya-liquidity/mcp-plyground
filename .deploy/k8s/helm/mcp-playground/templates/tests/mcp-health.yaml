@@ -1,0 +1,38 @@
+{{- if .Values.mcp.enabled }}
+{{- $mcp := include "mcp-playground.mcp.fullname" . }}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ $mcp }}-health-check"
+  labels:
+    {{- include "mcp-playground.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+    - name: curl
+      image: curlimages/curl:8.11.1
+      command:
+        - sh
+        - -c
+        - |
+          set -e
+          echo "Testing liveness probe (GET /health) ..."
+          curl -fsS "http://{{ $mcp }}:{{ .Values.mcp.service.port }}/health"
+          echo " ✓ liveness OK"
+
+          echo "Testing readiness probe (GET /health/ready) ..."
+          curl -fsS "http://{{ $mcp }}:{{ .Values.mcp.service.port }}/health/ready"
+          echo " ✓ readiness OK"
+
+          echo "Testing the MCP endpoint (POST /mcp tools/list) ..."
+          curl -fsS -X POST "http://{{ $mcp }}:{{ .Values.mcp.service.port }}/mcp" \
+            -H "Accept: application/json, text/event-stream" \
+            -H "Content-Type: application/json" \
+            -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
+            | grep -q "fire-forget"
+          echo " ✓ fire-forget advertised"
+{{- end }}

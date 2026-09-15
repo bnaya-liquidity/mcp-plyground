@@ -1,0 +1,70 @@
+{{- if .Values.mcp.enabled }}
+{{- $mcp := include "mcp-playground.mcp.fullname" . }}
+{{- $otelcol := include "mcp-playground.otelcol.fullname" . }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $mcp }}
+  labels:
+    {{- include "mcp-playground.labels" . | nindent 4 }}
+    {{- include "mcp-playground.selectorLabels" (dict "ctx" . "component" "mcp") | nindent 4 }}
+spec:
+  type: {{ .Values.mcp.service.type }}
+  selector:
+    {{- include "mcp-playground.selectorLabels" (dict "ctx" . "component" "mcp") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.mcp.service.port }}
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $mcp }}
+  labels:
+    {{- include "mcp-playground.labels" . | nindent 4 }}
+    {{- include "mcp-playground.selectorLabels" (dict "ctx" . "component" "mcp") | nindent 4 }}
+spec:
+  replicas: {{ .Values.mcp.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "mcp-playground.selectorLabels" (dict "ctx" . "component" "mcp") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "mcp-playground.selectorLabels" (dict "ctx" . "component" "mcp") | nindent 8 }}
+    spec:
+      containers:
+        - name: mcp
+          image: "{{ .Values.mcp.image.repository }}:{{ .Values.mcp.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.mcp.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.mcp.service.port }}
+          env:
+            - name: PORT
+              value: {{ .Values.mcp.service.port | quote }}
+            - name: OTEL_SERVICE_NAME
+              value: "mcp-playground"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.mcp.otlpEndpoint | default (printf "http://%s:%v" $otelcol .Values.otelcol.service.http) | quote }}
+            {{- range $k, $v := .Values.mcp.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.mcp.resources | nindent 12 }}
+{{- end }}

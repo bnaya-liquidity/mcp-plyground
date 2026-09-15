@@ -1,0 +1,9 @@
+**/node_modules
+**/dist
+**/.turbo
+**/*.tsbuildinfo
+.deploy
+.git
+.vscode
+**/coverage
+**/*.log

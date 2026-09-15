@@ -1,0 +1,73 @@
+{{- if .Values.ingress.enabled }}
+{{- $top := . }}
+{{- $class := .Values.ingress.className }}
+{{- $tls := .Values.ingress.tls }}
+{{- $commonAnn := .Values.ingress.annotations }}
+
+{{- if and .Values.mcp.enabled .Values.ingress.hosts.mcp }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "mcp-playground.mcp.fullname" . }}
+  labels:
+    {{- include "mcp-playground.labels" . | nindent 4 }}
+    {{- include "mcp-playground.selectorLabels" (dict "ctx" . "component" "mcp") | nindent 4 }}
+  annotations:
+    # MCP's Streamable-HTTP transport holds long-lived SSE streams: disable
+    # response buffering and raise read timeouts so events aren't withheld/cut.
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    {{- with $commonAnn }}{{ toYaml . | nindent 4 }}{{- end }}
+spec:
+  ingressClassName: {{ $class }}
+  {{- with $tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.hosts.mcp | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "mcp-playground.mcp.fullname" . }}
+                port:
+                  number: {{ .Values.mcp.service.port }}
+{{- end }}
+
+{{- if and .Values.aspire.enabled .Values.ingress.hosts.aspire }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "mcp-playground.aspire.fullname" . }}
+  labels:
+    {{- include "mcp-playground.labels" . | nindent 4 }}
+    {{- include "mcp-playground.selectorLabels" (dict "ctx" . "component" "aspire") | nindent 4 }}
+  {{- with $commonAnn }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  ingressClassName: {{ $class }}
+  {{- with $tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.hosts.aspire | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "mcp-playground.aspire.fullname" . }}
+                port:
+                  number: {{ .Values.aspire.service.web }}
+{{- end }}
+{{- end }}

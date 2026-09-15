@@ -1,0 +1,22 @@
+# Values for the "mcp-playground-servers" release: the observability stack, no MCP.
+# Deployed by:  pnpm run deploy:k8s:servers
+#
+# fullnameOverride pins resource names so in-cluster DNS is independent of the
+# release name. The mcp-playground release resolves mcp-playground-otelcol by
+# exactly this name — change it here and the app→collector wiring breaks
+# silently (helm lint stays green, traces simply stop arriving).
+fullnameOverride: mcp-playground
+
+mcp:
+  enabled: false
+
+otelcol:
+  enabled: true
+
+aspire:
+  enabled: true
+
+# Each ingress rule is independently gated on its component's enabled flag,
+# so this renders the aspire host only.
+ingress:
+  enabled: true

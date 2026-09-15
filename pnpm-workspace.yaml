@@ -1,0 +1,58 @@
+packages:
+  - "packages/*"
+  - "services/*"
+linkWorkspacePackages: true
+allowBuilds:
+  cpu-features: true
+  protobufjs: true
+  ssh2: true
+  unrs-resolver: true
+  # Dev-only, and it never needs compiling: jest-haste-map pulls @parcel/watcher
+  # for faster file crawling, and the package ships a prebuilt binary per
+  # platform as an optionalDependency. Its install script is only the node-gyp
+  # fallback. `false` = "deliberately not built" — pnpm 11 hard-fails
+  # (ERR_PNPM_IGNORED_BUILDS) on any build script that is neither allowed nor
+  # explicitly declined, so an absent entry breaks CI even though skipping the
+  # build is correct.
+  "@parcel/watcher": false
+
+# Security overrides: each entry patches a transitive dependency that
+# `pnpm audit` flags. Every one is scoped to a MAJOR (`pkg@1`) so no fix crosses
+# a major boundary — the patched release always exists inside the major the
+# dependent already asked for. None are direct dependencies; they arrive via
+# @modelcontextprotocol/sdk (runtime), and jest / eslint (dev only).
+#
+# These MUST live here, not in package.json: pnpm 11 no longer reads the `pnpm`
+# field from package.json and ignores `pnpm.overrides` there with a warning.
+#
+# `@modelcontextprotocol/sdk` is already at its latest (1.30.0), so its
+# vulnerable transitives cannot be fixed by bumping it — overrides are the only
+# lever. Re-run `pnpm audit` after any SDK upgrade and drop entries it has
+# caught up with.
+overrides:
+  # Nest DI identity is class-token based, so TWO copies of @nestjs/core in one
+  # process break it: nestjs-pino's LoggerModule injects `ApplicationConfig`
+  # from whichever copy it resolved, and NestFactory registered the one from
+  # *its* copy. The tokens are different classes, so the container reports
+  # "Nest can't resolve dependencies of the LoggerModule (pino-params, ?)".
+  # Without these pins, packages/nestjs-mcp resolved 12.0.1 while
+  # services/mcp-playground resolved 12.0.3. One version, one token.
+  "@nestjs/common": "12.0.3"
+  "@nestjs/core": "12.0.3"
+  "@nestjs/platform-express": "12.0.3"
+  # DoS via unbounded expansion / unbounded intermediate arrays (eslint, jest)
+  "brace-expansion@1": "^1.1.18"
+  "brace-expansion@2": "^2.1.4"
+  "brace-expansion@5": "^5.0.9"
+  # Quadratic CPU consumption in !!omap resolution (jest)
+  "js-yaml@3": "^3.15.2"
+  # Host confusion via a literal backslash in the authority (MCP SDK > ajv)
+  "fast-uri@3": "^3.1.6"
+  # Path traversal in serve-static (MCP SDK)
+  "@hono/node-server@1": "^1.19.17"
+  # ReDoS in CORS middleware, memo() SSR bleed across requests, language-
+  # middleware complexity DoS, Connection-header leak in the proxy helper
+  "hono@4": "^4.13.5"
+  # Leading-zero octets decoded as decimal, CIDR-suffix suppressing a check,
+  # IPv4-mapped/NAT64 misclassification (MCP SDK > express-rate-limit)
+  "ip-address@10": "^10.7.0"

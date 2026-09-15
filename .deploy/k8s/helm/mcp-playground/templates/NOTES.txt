@@ -1,0 +1,29 @@
+mcp-playground deployed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Components:
+{{- if .Values.mcp.enabled }}
+  • mcp-playground  svc/{{ include "mcp-playground.mcp.fullname" . }}:{{ .Values.mcp.service.port }}  (HTTP MCP: POST /mcp, tool: fire-forget)
+{{- end }}
+{{- if .Values.otelcol.enabled }}
+  • otelcol         svc/{{ include "mcp-playground.otelcol.fullname" . }}  (otlp grpc:{{ .Values.otelcol.service.grpc }}, http:{{ .Values.otelcol.service.http }})
+{{- end }}
+{{- if .Values.aspire.enabled }}
+  • aspire          svc/{{ include "mcp-playground.aspire.fullname" . }}  (web:{{ .Values.aspire.service.web }})
+{{- end }}
+
+Quick access:
+{{- if .Values.mcp.enabled }}
+
+  # MCP endpoint
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "mcp-playground.mcp.fullname" . }} 3100:{{ .Values.mcp.service.port }}
+
+  curl -X POST http://localhost:3100/mcp \
+    -H 'Accept: application/json, text/event-stream' \
+    -H 'Content-Type: application/json' \
+    -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"fire-forget","arguments":{"message":"hello","delayMs":1500}}}'
+{{- end }}
+{{- if .Values.aspire.enabled }}
+
+  # Aspire dashboard → http://localhost:18988
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "mcp-playground.aspire.fullname" . }} 18988:{{ .Values.aspire.service.web }}
+{{- end }}

@@ -1,0 +1,10 @@
+apiVersion: v2
+name: mcp-playground
+description: |
+  Self-contained deployment of the mcp-playground stack: the @playground/mcp-playground
+  HTTP MCP server (single `fire-forget` tool), an OpenTelemetry Collector, and the
+  Aspire dashboard.
+type: application
+version: 0.1.0
+# Application version tracks the mcp-playground image tag by default (see values.yaml).
+appVersion: "0.1.0"

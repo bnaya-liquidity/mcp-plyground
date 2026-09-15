@@ -1,0 +1,54 @@
+{{- if .Values.aspire.enabled }}
+{{- $aspire := include "mcp-playground.aspire.fullname" . }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $aspire }}
+  labels:
+    {{- include "mcp-playground.labels" . | nindent 4 }}
+    {{- include "mcp-playground.selectorLabels" (dict "ctx" . "component" "aspire") | nindent 4 }}
+spec:
+  type: {{ .Values.aspire.service.type }}
+  selector:
+    {{- include "mcp-playground.selectorLabels" (dict "ctx" . "component" "aspire") | nindent 4 }}
+  ports:
+    - name: web
+      port: {{ .Values.aspire.service.web }}
+      targetPort: web
+    - name: otlp
+      port: {{ .Values.aspire.service.otlp }}
+      targetPort: otlp
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $aspire }}
+  labels:
+    {{- include "mcp-playground.labels" . | nindent 4 }}
+    {{- include "mcp-playground.selectorLabels" (dict "ctx" . "component" "aspire") | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "mcp-playground.selectorLabels" (dict "ctx" . "component" "aspire") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "mcp-playground.selectorLabels" (dict "ctx" . "component" "aspire") | nindent 8 }}
+    spec:
+      containers:
+        - name: aspire
+          image: "{{ .Values.aspire.image.repository }}:{{ .Values.aspire.image.tag }}"
+          imagePullPolicy: {{ .Values.aspire.image.pullPolicy }}
+          ports:
+            - name: web
+              containerPort: 18888
+            - name: otlp
+              containerPort: 18889
+          env:
+            - name: DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS
+              value: "true"
+          resources:
+            {{- toYaml .Values.aspire.resources | nindent 12 }}
+{{- end }}

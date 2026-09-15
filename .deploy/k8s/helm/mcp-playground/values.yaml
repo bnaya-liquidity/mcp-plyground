@@ -1,0 +1,104 @@
+# Default values for the mcp-playground chart.
+
+nameOverride: ""
+fullnameOverride: ""
+
+# ---------------------------------------------------------------------------
+# ingress — exposes the HTTP UIs through an nginx Ingress controller.
+# Host-based routing: each app gets its own host at "/" (the Aspire dashboard is
+# a root-path SPA, so a subpath would break it).
+#
+# Requires an ingress-nginx controller in the cluster. On Docker Desktop:
+#   helm upgrade --install ingress-nginx ingress-nginx \
+#     --repo https://kubernetes.github.io/ingress-nginx \
+#     --namespace ingress-nginx --create-namespace
+# and add to /etc/hosts:  127.0.0.1  mcp.playground.local aspire.playground.local
+# ---------------------------------------------------------------------------
+ingress:
+  enabled: true
+  className: nginx
+  # Applied to every host. The MCP host also gets streaming-friendly overrides.
+  annotations: {}
+  tls: [] # e.g. [{ secretName: playground-tls, hosts: [mcp.playground.local, ...] }]
+  hosts:
+    mcp: mcp.playground.local
+    aspire: aspire.playground.local
+
+# ---------------------------------------------------------------------------
+# mcp — the @playground/mcp-playground NestJS HTTP MCP server
+# (services/mcp-playground). Exposes one tool: fire-forget.
+# ---------------------------------------------------------------------------
+mcp:
+  enabled: true
+  replicaCount: 1
+  image:
+    # Build with:  docker build -f services/mcp-playground/Dockerfile -t <repo>:<tag> .
+    # (build context MUST be the monorepo root — the image builds the workspace)
+    repository: mcp-playground
+    # Empty → falls back to Chart.appVersion (see Chart.yaml). Override per deploy,
+    # ideally with an immutable tag (git SHA / release version), never "latest".
+    tag: ""
+    # Always: the default tag is the mutable "dev" (see build-image.sh), and
+    # the local k8s node's image store can hold a stale digest for that tag
+    # even right after a fresh `docker build` — IfNotPresent would then never
+    # re-pull and a rollout restart would keep serving the old image.
+    pullPolicy: Always
+  service:
+    type: ClusterIP
+    port: 3000
+  # Where the MCP sends telemetry. Empty means "derive from this chart's own
+  # service names", which are stable across releases because fullnameOverride is
+  # set. Set explicitly only to point at a collector outside this chart.
+  #
+  # Deliberately NOT gated on otelcol.enabled: whether this chart renders the
+  # collector is a different question from where the MCP sends its spans.
+  otlpEndpoint: ""
+  # Extra environment for the MCP container.
+  env: {}
+    # OTEL_SDK_DISABLED: "true"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+# ---------------------------------------------------------------------------
+# otelcol — OpenTelemetry Collector (contrib). Config mirrors
+# .deploy/docker/otelcol-config.yaml with in-cluster service names.
+# ---------------------------------------------------------------------------
+otelcol:
+  enabled: true
+  image:
+    repository: otel/opentelemetry-collector-contrib
+    tag: "0.152.0"
+    pullPolicy: IfNotPresent
+  service:
+    grpc: 4317
+    http: 4318
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+
+# ---------------------------------------------------------------------------
+# aspire — .NET Aspire dashboard (trace/metric/log viewer).
+# ---------------------------------------------------------------------------
+aspire:
+  enabled: true
+  image:
+    repository: mcr.microsoft.com/dotnet/aspire-dashboard
+    tag: "9.3"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    web: 18888
+    otlp: 18889
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 512Mi

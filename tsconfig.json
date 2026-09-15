@@ -1,0 +1,8 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/otel-extensions" },
+    { "path": "packages/nestjs-mcp/tsconfig.build.json" },
+    { "path": "services/mcp-playground/tsconfig.build.json" }
+  ]
+}

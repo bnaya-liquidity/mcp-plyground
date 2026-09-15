@@ -1,0 +1,20 @@
+# Values for the "mcp-playground" release: the MCP only.
+# Deployed by:  pnpm run deploy:k8s:mcp
+#
+# Dependencies are rendered by the mcp-playground-servers release. Because both
+# releases share fullnameOverride, mcp.otlpEndpoint resolves to the correct
+# in-cluster service by default and needs no explicit override.
+fullnameOverride: mcp-playground
+
+mcp:
+  enabled: true
+
+otelcol:
+  enabled: false
+
+aspire:
+  enabled: false
+
+# Renders the mcp host rule only.
+ingress:
+  enabled: true

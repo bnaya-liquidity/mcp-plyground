@@ -1,7 +1,18 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import type { RequestId } from "@modelcontextprotocol/sdk/types.js";
 
 export interface McpRequestContext {
   headers: Record<string, string | string[] | undefined>;
+  /**
+   * The transport for the in-flight POST, and the JSON-RPC id of the current
+   * `tools/call` request. Set once both are known (the controller creates the
+   * transport, `buildMcpServer`'s CallTool handler learns the request id) so a
+   * detached job can answer the call directly via `transport.send(...,
+   * {relatedRequestId})` instead of through the handler's return value.
+   */
+  transport?: Transport;
+  requestId?: RequestId;
 }
 
 const store = new AsyncLocalStorage<McpRequestContext>();
@@ -12,6 +23,16 @@ export function runWithRequestContext<T>(ctx: McpRequestContext, fn: () => T): T
 
 export function getMcpRequestContext(): McpRequestContext | undefined {
   return store.getStore();
+}
+
+/** Returns the transport for the in-flight MCP POST, if one has been set. */
+export function getMcpTransport(): Transport | undefined {
+  return store.getStore()?.transport;
+}
+
+/** Returns the JSON-RPC request id of the current `tools/call`, if known. */
+export function getMcpRequestId(): RequestId | undefined {
+  return store.getStore()?.requestId;
 }
 
 /**

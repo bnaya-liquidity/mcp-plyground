@@ -4,7 +4,6 @@ import { FireForgetTools } from "./tools/fire-forget.tools.js";
 import { HealthController } from "./health.controller.js";
 import { NestedResponseTools } from "./tools/nested-response.tools.js";
 import { AwaitResponseTools } from "./tools/await-response.tools.js";
-import { PureNestedResponseTools } from "./tools/pure-nested-response.tools.js";
 
 export const SERVER_INFO = {
   name: "mcp-playground",

@@ -7,6 +7,8 @@ import {
 import { trace, SpanStatusCode } from "@opentelemetry/api";
 import type { RegisteredTool } from "./mcp-registry.service.js";
 import { isStructuredToolError } from "./mcp-tool-error.js";
+import { isDeferredResponse } from "./mcp-deferred-response.js";
+import { getMcpRequestContext } from "./mcp-request-context.js";
 
 /** Tracer name shared by every MCP server built on this framework. */
 const TRACER_NAME = "@playground/nestjs-mcp";
@@ -50,7 +52,7 @@ export function buildMcpServer(
     })),
   }));
 
-  server.setRequestHandler(CallToolRequestSchema, async (req) => {
+  server.setRequestHandler(CallToolRequestSchema, async (req, extra) => {
     const { name, arguments: args } = req.params;
     const tool = tools.find((t) => t.name === name);
     if (!tool) {
@@ -59,6 +61,12 @@ export function buildMcpServer(
         isError: true,
       };
     }
+    // Make this call's JSON-RPC id available to the tool method (via
+    // getMcpRequestId()) so a detached job can answer it directly later. Same
+    // AsyncLocalStorage-held object the controller set `transport` on, so
+    // this mutation is visible everywhere else in the request's async chain.
+    const ctx = getMcpRequestContext();
+    if (ctx) ctx.requestId = extra.requestId;
     // Auto-instrument every tool call with one active span. This is the single
     // generic seam that traces all tools — no per-tool telemetry code required.
     return trace
@@ -69,6 +77,16 @@ export function buildMcpServer(
         async (span) => {
           try {
             const result = await tool.invoke(args ?? {});
+            if (isDeferredResponse(result)) {
+              // The tool method is answering this call itself via
+              // `transport.send`. `finally` below still runs and ends the
+              // span (a `return` inside `try` runs `finally` before actually
+              // returning) — but this handler's own promise must never
+              // resolve, or the SDK would send a second (conflicting)
+              // response for this id.
+              span.setStatus({ code: SpanStatusCode.OK });
+              return new Promise<never>(() => {});
+            }
             span.setStatus({ code: SpanStatusCode.OK });
             // `JSON.stringify(undefined)` returns `undefined` (not the string
             // "undefined"), which would make `text` undefined and fail the SDK's

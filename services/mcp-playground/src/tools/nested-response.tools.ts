@@ -1,6 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { Injectable, Logger, type OnModuleDestroy } from "@nestjs/common";
-import { McpTool } from "@playground/nestjs-mcp";
+import type { RequestId } from "@modelcontextprotocol/sdk/types.js";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import {
+  DEFERRED_RESPONSE,
+  McpTool,
+  getMcpRequestId,
+  getMcpTransport,
+} from "@playground/nestjs-mcp";
 import {
   createSpanHelpers,
   injectContext,
@@ -24,8 +31,17 @@ const nestedRespnseInput = z.object({
 export type NestedResponseInput = z.infer<typeof nestedRespnseInput>;
 export type ToolResponse = NestedResponseInput & { jobId: string };
 
-/** Called by a detached job to write the tool's final response. Only the first call wins — a native `Promise` ignores every resolve after the first. */
-type ResponseWriter = (value: string) => void;
+/**
+ * Shared by every detached job spawned for one call, so whichever job
+ * finishes first can answer the call and every later job can see that
+ * happened and stay quiet — only one JSON-RPC response may be sent per
+ * request id.
+ */
+interface CallAnswer {
+  transport: Transport;
+  requestId: RequestId;
+  sent: boolean;
+}
 
 @Injectable()
 export class NestedResponseTools implements OnModuleDestroy {
@@ -38,12 +54,20 @@ export class NestedResponseTools implements OnModuleDestroy {
    */
   private readonly inFlight = new Set<Promise<ToolResponse>>();
 
+  /**
+   * Returns `DEFERRED_RESPONSE` instead of the tool's actual text: the
+   * detached jobs write the real `tools/call` result themselves, straight to
+   * the HTTP response stream via `transport.send`, the way an ASP.NET handler
+   * writes to `HttpContext.Response` directly instead of returning a value
+   * the framework serializes. No promise here is ever awaited across a job
+   * boundary — this method returns as soon as the jobs are dispatched.
+   */
   @McpTool({
     name: "nested-response",
     description: "produce the response via a nested job.",
     inputSchema: nestedRespnseInput,
   })
-  async nestedResponse(input: NestedResponseInput): Promise<string> {
+  nestedResponse(input: NestedResponseInput): typeof DEFERRED_RESPONSE {
     const jobId = randomUUID();
 
     // Capture the CALLER's span context now, while the `tool.nested-response` span
@@ -54,19 +78,26 @@ export class NestedResponseTools implements OnModuleDestroy {
     const carrier: MessageHeaders = {};
     injectContext(carrier);
 
-    let writeResponse!: ResponseWriter;
-    const response = new Promise<string>((resolve) => {
-      writeResponse = resolve;
-    });
+    // Must be read now, synchronously, while the AsyncLocalStorage context for
+    // this HTTP request is still active — a detached job runs after this
+    // method returns, on its own continuation, where the context is gone.
+    const transport = getMcpTransport();
+    const requestId = getMcpRequestId();
+    if (!transport || requestId === undefined) {
+      throw new Error(
+        "nested-response requires an MCP request context (transport + request id)",
+      );
+    }
+    const answer: CallAnswer = { transport, requestId, sent: false };
 
-    const job1 = this.runDetached("jobId 1", input, carrier, writeResponse);
+    const job1 = this.runDetached("jobId 1", input, carrier, answer);
     this.inFlight.add(job1);
 
     const job2 = this.runDetached(
       "jobId 2",
       { ...input, delayMs: 500 },
       carrier,
-      writeResponse,
+      answer,
     );
 
     this.inFlight.add(job2);
@@ -74,10 +105,7 @@ export class NestedResponseTools implements OnModuleDestroy {
     void job2.finally(() => this.inFlight.delete(job2));
 
     this.logger.log(`nested-response accepted job ${jobId}`);
-    const finalResponse = await response;
-    return `Root: ${finalResponse}`;
-    // const r = await Promise.race([job1, job2]);
-    //return `Root: ${r.message} completed in ${r.delayMs ?? 0} ms (jobId: ${r.jobId})`;
+    return DEFERRED_RESPONSE;
   }
 
   /** Resolves once every job accepted so far has settled. Test seam, also used for graceful shutdown. */
@@ -105,7 +133,7 @@ export class NestedResponseTools implements OnModuleDestroy {
     jobId: string,
     input: NestedResponseInput,
     carrier: MessageHeaders,
-    writeResponse: ResponseWriter,
+    answer: CallAnswer,
   ): Promise<ToolResponse> {
     await spans.withConsumerSpan(
       {
@@ -132,10 +160,34 @@ export class NestedResponseTools implements OnModuleDestroy {
         }
       },
     );
-    writeResponse(
+    await this.answerCall(
+      answer,
       `Job ${jobId}: ${input.message} completed in ${input.delayMs ?? 0} ms`,
     );
     this.logger.log(`job ended: ${jobId} processed: ${input.message}`);
     return { ...input, jobId };
+  }
+
+  /**
+   * Sends the `tools/call` JSON-RPC response directly on the transport,
+   * bypassing the `@McpTool` return-value path entirely — mirrors writing to
+   * `HttpContext.Response` straight from a background job.
+   *
+   * Only the first job to finish may answer; a JSON-RPC request may receive
+   * exactly one response. `answer.sent` is checked and set synchronously
+   * (no `await` in between), so the two jobs racing here can't both pass the
+   * check.
+   */
+  private async answerCall(answer: CallAnswer, text: string): Promise<void> {
+    if (answer.sent) return;
+    answer.sent = true;
+    await answer.transport.send(
+      {
+        jsonrpc: "2.0",
+        id: answer.requestId,
+        result: { content: [{ type: "text", text }] },
+      },
+      { relatedRequestId: answer.requestId },
+    );
   }
 }

@@ -16,7 +16,7 @@ import { parseMcpBody } from "./mcp-jsonrpc-body.js";
 import { buildMcpServer, endpointLabel, type McpServerInfo } from "./mcp-server.factory.js";
 import { MCP_FEATURE_OPTIONS } from "./mcp.constants.js";
 import type { McpFeatureOptions } from "./mcp.module.js";
-import { runWithRequestContext } from "./mcp-request-context.js";
+import { runWithRequestContext, type McpRequestContext } from "./mcp-request-context.js";
 
 /**
  * Stateless Streamable HTTP MCP endpoint. A fresh Server + transport is built
@@ -77,12 +77,17 @@ export class McpController implements OnModuleInit {
 
   @Post()
   async handlePost(@Req() req: Request, @Res() res: Response): Promise<void> {
-    return runWithRequestContext({ headers: req.headers }, async () => {
+    const ctx: McpRequestContext = { headers: req.headers };
+    return runWithRequestContext(ctx, async () => {
       this.recordMcpTelemetry(req.body);
       const server = buildMcpServer(this.serverInfo, this.registry.getTools());
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
       });
+      // Same object `runWithRequestContext` handed to `store.run`, so mutating
+      // it here is visible to `getMcpTransport()` calls made anywhere further
+      // down this request's async chain (including inside a detached job).
+      ctx.transport = transport;
       res.on("close", () => {
         void transport.close();
         void server.close();

@@ -11,8 +11,11 @@ export {
   runWithRequestContext,
   getMcpRequestContext,
   getRequestHeader,
+  getMcpTransport,
+  getMcpRequestId,
 } from "./mcp-request-context.js";
 export type { McpRequestContext } from "./mcp-request-context.js";
+export { DEFERRED_RESPONSE, isDeferredResponse } from "./mcp-deferred-response.js";
 export { initTelemetry, otelLogsEnabled, OtelPinoStream } from "@playground/otel-extensions";
 export type { TelemetryShutdown } from "@playground/otel-extensions";
 export { McpTelemetryModule } from "./telemetry/mcp-telemetry.module.js";

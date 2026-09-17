@@ -2,6 +2,9 @@ import { Module } from "@nestjs/common";
 import { McpLoggerModule, McpModule } from "@playground/nestjs-mcp";
 import { FireForgetTools } from "./tools/fire-forget.tools.js";
 import { HealthController } from "./health.controller.js";
+import { NestedResponseTools } from "./tools/nested-response.tools.js";
+import { AwaitResponseTools } from "./tools/await-response.tools.js";
+import { PureNestedResponseTools } from "./tools/pure-nested-response.tools.js";
 
 export const SERVER_INFO = {
   name: "mcp-playground",
@@ -19,7 +22,7 @@ export const MCP_ROUTE = "mcp";
     McpModule.forFeature({
       route: MCP_ROUTE,
       serverInfo: SERVER_INFO,
-      toolProviders: [FireForgetTools],
+      toolProviders: [FireForgetTools, NestedResponseTools, AwaitResponseTools],
     }),
   ],
   controllers: [HealthController],

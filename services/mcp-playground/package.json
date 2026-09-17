@@ -1,6 +1,6 @@
 {
   "name": "@playground/mcp-playground",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "MCP service exposing a single fire-forget tool, built on @playground/nestjs-mcp.",
   "type": "module",

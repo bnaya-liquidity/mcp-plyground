@@ -1,6 +1,6 @@
 import { Module } from "@nestjs/common";
 import { McpLoggerModule, McpModule } from "@playground/nestjs-mcp";
-import { FireForgetTools } from "./fire-forget.tools.js";
+import { FireForgetTools } from "./tools/fire-forget.tools.js";
 import { HealthController } from "./health.controller.js";
 
 export const SERVER_INFO = {

@@ -3,7 +3,7 @@ import { Test } from "@nestjs/testing";
 import type { INestApplication } from "@nestjs/common";
 import { McpModule } from "@playground/nestjs-mcp";
 import request from "supertest";
-import { FireForgetTools } from "../src/fire-forget.tools.js";
+import { FireForgetTools } from "../src/tools/fire-forget.tools.js";
 import { MCP_ROUTE, SERVER_INFO } from "../src/app.module.js";
 
 // AppModule itself is deliberately NOT used here: it imports McpLoggerModule,

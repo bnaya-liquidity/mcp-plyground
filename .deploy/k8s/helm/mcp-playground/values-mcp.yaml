@@ -15,6 +15,5 @@ otelcol:
 aspire:
   enabled: false
 
-# Renders the mcp host rule only.
 ingress:
-  enabled: true
+  enabled: false

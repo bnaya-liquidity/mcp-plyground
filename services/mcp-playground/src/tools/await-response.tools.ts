@@ -2,13 +2,11 @@ import { randomUUID } from "node:crypto";
 import { Injectable, Logger, type OnModuleDestroy } from "@nestjs/common";
 import { McpTool } from "@playground/nestjs-mcp";
 import {
-  createSpanHelpers,
   injectContext,
   type MessageHeaders,
 } from "@playground/otel-extensions";
 import { z } from "zod";
-
-const spans = createSpanHelpers("@playground/mcp-playground");
+import { runDetached, type DetachedJobResult } from "./detached-job.js";
 
 const awaitResponseInput = z.object({
   message: z.string().min(1).describe("Payload to hand to the detached job."),
@@ -22,7 +20,7 @@ const awaitResponseInput = z.object({
 });
 
 export type AwaitResponseInput = z.infer<typeof awaitResponseInput>;
-export type ToolResponse = AwaitResponseInput & { jobId: string };
+export type ToolResponse = DetachedJobResult<AwaitResponseInput>;
 
 @Injectable()
 export class AwaitResponseTools implements OnModuleDestroy {
@@ -51,12 +49,12 @@ export class AwaitResponseTools implements OnModuleDestroy {
     const carrier: MessageHeaders = {};
     injectContext(carrier);
 
-    const job1 = this.runDetached("jobId 1", input, carrier);
+    const job1 = this.runJob("jobId 1", input, carrier);
     this.inFlight.add(job1);
 
     await new Promise((resolve) => setTimeout(resolve, 300));
 
-    const job2 = this.runDetached(
+    const job2 = this.runJob(
       "jobId 2",
       { ...input, delayMs: input.delayMs ?? 0 + 500 },
       carrier,
@@ -80,47 +78,17 @@ export class AwaitResponseTools implements OnModuleDestroy {
     await this.drain();
   }
 
-  /**
-   * The detached half. Uses `withConsumerSpan`, so the job gets a ROOT span
-   * carrying a LINK back to the accepting request rather than becoming its
-   * child: a parent span cannot end before its children, so parenting here
-   * would stretch the HTTP request span across the job's entire lifetime and
-   * corrupt every latency percentile derived from it.
-   *
-   * Errors are logged and swallowed. That is the fire-and-forget contract —
-   * the caller already has its response and there is nobody left to throw to;
-   * an escaping rejection would be an unhandled rejection, not a useful signal.
-   */
-  private async runDetached(
+  private runJob(
     jobId: string,
     input: AwaitResponseInput,
     carrier: MessageHeaders,
   ): Promise<ToolResponse> {
-    await spans.withConsumerSpan(
-      {
-        operation: "await-response-job",
-        destination: `await-response-job ${jobId}`,
-        headers: carrier,
-        system: "in_process",
-        attributes: { "job.id": jobId, "job.delay_ms": input.delayMs ?? 0 },
-      },
-      async () => {
-        try {
-          if (input.delayMs) {
-            await new Promise((resolve) => setTimeout(resolve, input.delayMs));
-          }
-          this.logger.log(
-            `await-response job ${jobId} processed: ${input.message}`,
-          );
-        } catch (err) {
-          const error = err instanceof Error ? err : new Error(String(err));
-          this.logger.error(
-            `await-response job ${jobId} failed: ${error.message}`,
-            error.stack,
-          );
-        }
-      },
-    );
-    return { ...input, jobId };
+    return runDetached({
+      name: "await-response",
+      jobId,
+      input,
+      carrier,
+      logger: this.logger,
+    });
   }
 }

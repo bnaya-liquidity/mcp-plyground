@@ -16,7 +16,5 @@ otelcol:
 aspire:
   enabled: true
 
-# Each ingress rule is independently gated on its component's enabled flag,
-# so this renders the aspire host only.
 ingress:
-  enabled: true
+  enabled: false

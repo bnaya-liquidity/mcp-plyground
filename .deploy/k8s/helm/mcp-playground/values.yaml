@@ -15,7 +15,7 @@ fullnameOverride: ""
 # and add to /etc/hosts:  127.0.0.1  mcp.playground.local aspire.playground.local
 # ---------------------------------------------------------------------------
 ingress:
-  enabled: true
+  enabled: false
   className: nginx
   # Applied to every host. The MCP host also gets streaming-friendly overrides.
   annotations: {}

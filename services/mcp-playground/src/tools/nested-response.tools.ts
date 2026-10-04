@@ -9,13 +9,11 @@ import {
   getMcpTransport,
 } from "@playground/nestjs-mcp";
 import {
-  createSpanHelpers,
   injectContext,
   type MessageHeaders,
 } from "@playground/otel-extensions";
 import { z } from "zod";
-
-const spans = createSpanHelpers("@playground/mcp-playground");
+import { runDetached, type DetachedJobResult } from "./detached-job.js";
 
 const nestedRespnseInput = z.object({
   message: z.string().min(1).describe("Payload to hand to the detached job."),
@@ -29,7 +27,7 @@ const nestedRespnseInput = z.object({
 });
 
 export type NestedResponseInput = z.infer<typeof nestedRespnseInput>;
-export type ToolResponse = NestedResponseInput & { jobId: string };
+export type ToolResponse = DetachedJobResult<NestedResponseInput>;
 
 /**
  * Shared by every detached job spawned for one call, so whichever job
@@ -90,10 +88,10 @@ export class NestedResponseTools implements OnModuleDestroy {
     }
     const answer: CallAnswer = { transport, requestId, sent: false };
 
-    const job1 = this.runDetached("jobId 1", input, carrier, answer);
+    const job1 = this.runJob("jobId 1", input, carrier, answer);
     this.inFlight.add(job1);
 
-    const job2 = this.runDetached(
+    const job2 = this.runJob(
       "jobId 2",
       { ...input, delayMs: 500 },
       carrier,
@@ -119,53 +117,28 @@ export class NestedResponseTools implements OnModuleDestroy {
   }
 
   /**
-   * The detached half. Uses `withConsumerSpan`, so the job gets a ROOT span
-   * carrying a LINK back to the accepting request rather than becoming its
-   * child: a parent span cannot end before its children, so parenting here
-   * would stretch the HTTP request span across the job's entire lifetime and
-   * corrupt every latency percentile derived from it.
-   *
-   * Errors are logged and swallowed. That is the fire-and-forget contract —
-   * the caller already has its response and there is nobody left to throw to;
-   * an escaping rejection would be an unhandled rejection, not a useful signal.
+   * Runs the shared detached job, then answers the call — whichever job
+   * gets here first sends the `tools/call` result.
    */
-  private async runDetached(
+  private async runJob(
     jobId: string,
     input: NestedResponseInput,
     carrier: MessageHeaders,
     answer: CallAnswer,
   ): Promise<ToolResponse> {
-    await spans.withConsumerSpan(
-      {
-        operation: "nested-response-job",
-        destination: `nested-response-job ${jobId}`,
-        headers: carrier,
-        system: "in_process",
-        attributes: { "job.id": jobId, "job.delay_ms": input.delayMs ?? 0 },
-      },
-      async () => {
-        try {
-          if (input.delayMs) {
-            await new Promise((resolve) => setTimeout(resolve, input.delayMs));
-          }
-          this.logger.log(
-            `nested-response job ${jobId} processed: ${input.message}`,
-          );
-        } catch (err) {
-          const error = err instanceof Error ? err : new Error(String(err));
-          this.logger.error(
-            `nested-response job ${jobId} failed: ${error.message}`,
-            error.stack,
-          );
-        }
-      },
-    );
+    const result = await runDetached({
+      name: "nested-response",
+      jobId,
+      input,
+      carrier,
+      logger: this.logger,
+    });
     await this.answerCall(
       answer,
       `Job ${jobId}: ${input.message} completed in ${input.delayMs ?? 0} ms`,
     );
     this.logger.log(`job ended: ${jobId} processed: ${input.message}`);
-    return { ...input, jobId };
+    return result;
   }
 
   /**

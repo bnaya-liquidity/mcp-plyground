@@ -1,4 +1,10 @@
 import type { Logger } from "@nestjs/common";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import {
+  getMcpRequestContext,
+  writeMcpResponse,
+  type McpRequestContext,
+} from "@playground/nestjs-mcp";
 import {
   createSpanHelpers,
   type MessageHeaders,
@@ -26,6 +32,13 @@ export interface DetachedJobOptions {
   /** Caller span context, captured with `injectContext` while the tool span was still active. */
   carrier: MessageHeaders;
   logger: Logger;
+  /**
+   * When true, the job writes the `tools/call` result straight to the HTTP
+   * response once it finishes (see `writeMcpResponse`), and records an
+   * `mcp.response.emitted` span event on the job span. The calling tool must
+   * then return `DEFERRED_RESPONSE`. Defaults to false.
+   */
+  emitResponse?: boolean;
 }
 
 /**
@@ -46,7 +59,11 @@ export async function runDetached({
   delayMs,
   carrier,
   logger,
+  emitResponse = false,
 }: DetachedJobOptions): Promise<DetachedJobResult> {
+  // Captured now, while the caller's request context is certainly active, so
+  // the write below targets this call's response.
+  const requestContext = emitResponse ? getMcpRequestContext() : undefined;
   await spans.withAsyncSpan(
     `${name}-job: ${delayMs ?? 0}ms`,
     //await spans.withConsumerSpan(
@@ -58,20 +75,60 @@ export async function runDetached({
     //   attributes: { "job.id": jobId, "job.delay_ms": input.delayMs ?? 0 },
     // },
     async () => {
+      let failure: Error | undefined;
       try {
         if (delayMs) {
           await new Promise((resolve) => setTimeout(resolve, delayMs));
         }
         logger.log(`${name} job ${jobId} processed: ${message}`);
       } catch (err) {
-        const error = err instanceof Error ? err : new Error(String(err));
+        failure = err instanceof Error ? err : new Error(String(err));
         logger.error(
-          `${name} job ${jobId} failed: ${error.message}`,
-          error.stack,
+          `${name} job ${jobId} failed: ${failure.message}`,
+          failure.stack,
           carrier,
         );
+      }
+      if (emitResponse) {
+        // A failed job still answers: with the tool returning
+        // DEFERRED_RESPONSE, nothing else ever will.
+        const result: CallToolResult = failure
+          ? {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({ code: "INTERNAL_ERROR", message: failure.message }),
+                },
+              ],
+              isError: true,
+            }
+          : {
+              content: [
+                { type: "text", text: `Job ${jobId}: ${message} completed in ${delayMs ?? 0} ms` },
+              ],
+            };
+        await emitJobResponse(result, requestContext, name, jobId, logger);
       }
     },
   );
   return { message, delayMs, jobId };
+}
+
+/** Writes the job's response; never throws (see the fire-and-forget contract above). */
+async function emitJobResponse(
+  result: CallToolResult,
+  requestContext: McpRequestContext | undefined,
+  name: string,
+  jobId: string,
+  logger: Logger,
+): Promise<void> {
+  try {
+    const written = await writeMcpResponse(result, requestContext);
+    if (!written) {
+      logger.debug(`${name} job ${jobId}: response already written or client gone`);
+    }
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error(`${name} job ${jobId} could not write response: ${error.message}`, error.stack);
+  }
 }

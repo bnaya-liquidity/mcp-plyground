@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import type { ServerResponse } from "node:http";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { RequestId } from "@modelcontextprotocol/sdk/types.js";
 
@@ -13,6 +14,18 @@ export interface McpRequestContext {
    */
   transport?: Transport;
   requestId?: RequestId;
+  /**
+   * The raw HTTP response for the in-flight POST, bound by
+   * `McpRequestContextMiddleware` so a tool or detached job can write the
+   * `tools/call` result straight to it (see `writeMcpResponse`) without the
+   * response being passed down the call stack.
+   */
+  res?: ServerResponse;
+  /**
+   * Set by `writeMcpResponse` once it has claimed this request's single
+   * JSON-RPC response, so later writers for the same call stay quiet.
+   */
+  responseWritten?: boolean;
 }
 
 const store = new AsyncLocalStorage<McpRequestContext>();

@@ -16,7 +16,11 @@ import { parseMcpBody } from "./mcp-jsonrpc-body.js";
 import { buildMcpServer, endpointLabel, type McpServerInfo } from "./mcp-server.factory.js";
 import { MCP_FEATURE_OPTIONS } from "./mcp.constants.js";
 import type { McpFeatureOptions } from "./mcp.module.js";
-import { runWithRequestContext, type McpRequestContext } from "./mcp-request-context.js";
+import {
+  getMcpRequestContext,
+  runWithRequestContext,
+  type McpRequestContext,
+} from "./mcp-request-context.js";
 
 /**
  * Stateless Streamable HTTP MCP endpoint. A fresh Server + transport is built
@@ -77,7 +81,12 @@ export class McpController implements OnModuleInit {
 
   @Post()
   async handlePost(@Req() req: Request, @Res() res: Response): Promise<void> {
-    const ctx: McpRequestContext = { headers: req.headers };
+    // `McpRequestContextMiddleware` normally opened the context already; reuse
+    // that object so everything set on it below stays visible to code that
+    // captured it there. Fall back to a fresh one when the controller runs
+    // without the middleware (e.g. mounted by hand in a test).
+    const ctx: McpRequestContext = getMcpRequestContext() ?? { headers: req.headers };
+    ctx.res = res;
     return runWithRequestContext(ctx, async () => {
       this.recordMcpTelemetry(req.body);
       const server = buildMcpServer(this.serverInfo, this.registry.getTools());

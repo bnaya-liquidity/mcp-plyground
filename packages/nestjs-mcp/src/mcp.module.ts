@@ -1,10 +1,19 @@
-import { Controller, type DynamicModule, type Type, Module } from "@nestjs/common";
+import {
+  Controller,
+  Inject,
+  Module,
+  type DynamicModule,
+  type MiddlewareConsumer,
+  type NestModule,
+  type Type,
+} from "@nestjs/common";
 import { MetadataScanner } from "@nestjs/core";
 import { McpController } from "./mcp.controller.js";
 import { McpRegistryService } from "./mcp-registry.service.js";
 import { MCP_FEATURE_OPTIONS, MCP_TOOL_PROVIDERS } from "./mcp.constants.js";
 import type { McpServerInfo } from "./mcp-server.factory.js";
 import { McpTelemetryModule } from "./telemetry/mcp-telemetry.module.js";
+import { McpRequestContextMiddleware } from "./mcp-request-context.middleware.js";
 
 export interface McpFeatureOptions {
   /** HTTP route the MCP endpoint binds to, e.g. "read/mcp". No leading slash. */
@@ -17,7 +26,19 @@ export interface McpFeatureOptions {
 }
 
 @Module({})
-export class McpModule {
+export class McpModule implements NestModule {
+  constructor(@Inject(MCP_FEATURE_OPTIONS) private readonly options: McpFeatureOptions) {}
+
+  /**
+   * Binds the request context (headers + raw `res`) for this endpoint's
+   * route, so tools can write their response directly (`writeMcpResponse`).
+   * Each `forFeature` import is its own module instance with its own options,
+   * so every endpoint binds only its own route.
+   */
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(McpRequestContextMiddleware).forRoutes(this.options.route);
+  }
+
   static forFeature(options: McpFeatureOptions): DynamicModule {
     @Controller(options.route)
     class RouteBoundMcpController extends McpController {}

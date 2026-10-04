@@ -4,6 +4,7 @@ import { FireForgetTools } from "./tools/fire-forget.tools.js";
 import { HealthController } from "./health.controller.js";
 import { NestedResponseTools } from "./tools/nested-response.tools.js";
 import { AwaitResponseTools } from "./tools/await-response.tools.js";
+import { ResponseWriteTools } from "./tools/response-write.tools.js";
 
 export const SERVER_INFO = {
   name: "mcp-playground",
@@ -21,7 +22,12 @@ export const MCP_ROUTE = "mcp";
     McpModule.forFeature({
       route: MCP_ROUTE,
       serverInfo: SERVER_INFO,
-      toolProviders: [FireForgetTools, NestedResponseTools, AwaitResponseTools],
+      toolProviders: [
+        FireForgetTools,
+        NestedResponseTools,
+        AwaitResponseTools,
+        ResponseWriteTools,
+      ],
     }),
   ],
   controllers: [HealthController],

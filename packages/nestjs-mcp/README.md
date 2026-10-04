@@ -90,6 +90,7 @@ Module init (once)
         and caches the tool list.
 
 POST /your/route
+  └── McpRequestContextMiddleware binds headers + raw `res` (AsyncLocalStorage).
   └── McpController receives the JSON-RPC request.
         ├── Creates a fresh MCP Server instance (no shared state).
         ├── Attaches a stateless StreamableHTTPServerTransport.
@@ -108,6 +109,34 @@ Key properties:
   connection, and no in-memory state carried between requests.
 - **`GET` and `DELETE` are rejected with 405.** SSE streaming and session-based transports
   are not supported.
+
+### Writing the response directly
+
+`McpModule.forFeature` applies `McpRequestContextMiddleware` to its route. The middleware
+binds the request headers and the raw HTTP response to an `AsyncLocalStorage` context, so
+code deep in the call chain — including a detached job — can answer the call without the
+response being passed down:
+
+```ts
+import { DEFERRED_RESPONSE, writeMcpResponse } from "@playground/nestjs-mcp";
+
+@McpTool({ name: "slow", description: "…", inputSchema })
+slow(input: Input): typeof DEFERRED_RESPONSE {
+  void doWork(input).then((text) => writeMcpResponse({ content: [{ type: "text", text }] }));
+  return DEFERRED_RESPONSE; // the SDK sends nothing for this call
+}
+```
+
+`writeMcpResponse`:
+
+- writes one SSE `message` event holding the JSON-RPC result, then ends the response;
+- waits until the transport has flushed the SSE headers before writing;
+- writes at most once per request — later calls return `false`;
+- records an `mcp.response.emitted` span event (`mcp.request_id`, `mcp.response.mode`,
+  `mcp.response.bytes`) on the active span.
+
+A tool that returns `DEFERRED_RESPONSE` must make sure something writes, or the client
+waits forever.
 
 ---
 

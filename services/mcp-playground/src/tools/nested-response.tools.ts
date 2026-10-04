@@ -27,7 +27,7 @@ const nestedRespnseInput = z.object({
 });
 
 export type NestedResponseInput = z.infer<typeof nestedRespnseInput>;
-export type ToolResponse = DetachedJobResult<NestedResponseInput>;
+export type ToolResponse = DetachedJobResult;
 
 /**
  * Shared by every detached job spawned for one call, so whichever job
@@ -88,12 +88,19 @@ export class NestedResponseTools implements OnModuleDestroy {
     }
     const answer: CallAnswer = { transport, requestId, sent: false };
 
-    const job1 = this.runJob("jobId 1", input, carrier, answer);
+    const job1 = this.runJob(
+      "jobId 1",
+      input.message,
+      input.delayMs,
+      carrier,
+      answer,
+    );
     this.inFlight.add(job1);
 
     const job2 = this.runJob(
       "jobId 2",
-      { ...input, delayMs: 500 },
+      input.message,
+      (input.delayMs ?? 0) + 500,
       carrier,
       answer,
     );
@@ -122,22 +129,24 @@ export class NestedResponseTools implements OnModuleDestroy {
    */
   private async runJob(
     jobId: string,
-    input: NestedResponseInput,
+    message: string,
+    delayMs: number | undefined,
     carrier: MessageHeaders,
     answer: CallAnswer,
   ): Promise<ToolResponse> {
     const result = await runDetached({
       name: "nested-response",
       jobId,
-      input,
+      message,
+      delayMs,
       carrier,
       logger: this.logger,
     });
     await this.answerCall(
       answer,
-      `Job ${jobId}: ${input.message} completed in ${input.delayMs ?? 0} ms`,
+      `Job ${jobId}: ${message} completed in ${delayMs ?? 0} ms`,
     );
-    this.logger.log(`job ended: ${jobId} processed: ${input.message}`);
+    this.logger.log(`job ended: ${jobId} processed: ${message}`);
     return result;
   }
 

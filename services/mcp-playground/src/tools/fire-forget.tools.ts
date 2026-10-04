@@ -38,9 +38,7 @@ export class FireForgetTools implements OnModuleDestroy {
    * (`onModuleDestroy`) can await them. Entries remove themselves on settle,
    * so an idle process holds none.
    */
-  private readonly inFlight = new Set<
-    Promise<DetachedJobResult<FireForgetInput>>
-  >();
+  private readonly inFlight = new Set<Promise<DetachedJobResult>>();
 
   @McpTool({
     name: "fire-forget",
@@ -60,19 +58,21 @@ export class FireForgetTools implements OnModuleDestroy {
       const carrier: MessageHeaders = {};
       injectContext(carrier);
 
-      const job1: Promise<DetachedJobResult<FireForgetInput>> = this.runJob(
+      const job1: Promise<DetachedJobResult> = this.runJob(
         "A",
         jobId,
-        input,
+        input.message,
+        input.delayMs,
         carrier,
       );
       this.inFlight.add(job1);
       void job1.finally(() => this.inFlight.delete(job1));
 
-      const job2: Promise<DetachedJobResult<FireForgetInput>> = this.runJob(
+      const job2: Promise<DetachedJobResult> = this.runJob(
         "B",
         jobId,
-        { ...input, delayMs: input.delayMs ?? 0 + 1000 },
+        input.message,
+        (input.delayMs ?? 0) + 1000,
         carrier,
       );
       this.inFlight.add(job2);
@@ -98,13 +98,15 @@ export class FireForgetTools implements OnModuleDestroy {
   private runJob(
     name: string,
     jobId: string,
-    input: FireForgetInput,
+    message: string,
+    delayMs: number | undefined,
     carrier: MessageHeaders,
-  ): Promise<DetachedJobResult<FireForgetInput>> {
+  ): Promise<DetachedJobResult> {
     return runDetached({
       name,
       jobId,
-      input,
+      message,
+      delayMs,
       carrier,
       logger: this.logger,
     });

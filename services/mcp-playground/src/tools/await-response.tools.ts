@@ -20,7 +20,7 @@ const awaitResponseInput = z.object({
 });
 
 export type AwaitResponseInput = z.infer<typeof awaitResponseInput>;
-export type ToolResponse = DetachedJobResult<AwaitResponseInput>;
+export type ToolResponse = DetachedJobResult;
 
 @Injectable()
 export class AwaitResponseTools implements OnModuleDestroy {
@@ -49,14 +49,15 @@ export class AwaitResponseTools implements OnModuleDestroy {
     const carrier: MessageHeaders = {};
     injectContext(carrier);
 
-    const job1 = this.runJob("jobId 1", input, carrier);
+    const job1 = this.runJob("jobId 1", input.message, input.delayMs, carrier);
     this.inFlight.add(job1);
 
     await new Promise((resolve) => setTimeout(resolve, 300));
 
     const job2 = this.runJob(
       "jobId 2",
-      { ...input, delayMs: input.delayMs ?? 0 + 500 },
+      input.message,
+      (input.delayMs ?? 0) + 500,
       carrier,
     );
     this.inFlight.add(job2);
@@ -80,13 +81,15 @@ export class AwaitResponseTools implements OnModuleDestroy {
 
   private runJob(
     jobId: string,
-    input: AwaitResponseInput,
+    message: string,
+    delayMs: number | undefined,
     carrier: MessageHeaders,
   ): Promise<ToolResponse> {
     return runDetached({
       name: "await-response",
       jobId,
-      input,
+      message,
+      delayMs,
       carrier,
       logger: this.logger,
     });

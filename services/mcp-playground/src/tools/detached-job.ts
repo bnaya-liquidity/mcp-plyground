@@ -11,15 +11,18 @@ export interface DetachedJobInput {
   delayMs?: number;
 }
 
-export type DetachedJobResult<TInput extends DetachedJobInput> = TInput & {
+export type DetachedJobResult = {
+  message: string;
+  delayMs?: number;
   jobId: string;
 };
 
-export interface DetachedJobOptions<TInput extends DetachedJobInput> {
+export interface DetachedJobOptions {
   /** Tool name, used as the span operation prefix and in log lines (e.g. `fire-forget`). */
   name: string;
   jobId: string;
-  input: TInput;
+  message: string;
+  delayMs?: number;
   /** Caller span context, captured with `injectContext` while the tool span was still active. */
   carrier: MessageHeaders;
   logger: Logger;
@@ -36,15 +39,16 @@ export interface DetachedJobOptions<TInput extends DetachedJobInput> {
  * the caller already has its response and there is nobody left to throw to;
  * an escaping rejection would be an unhandled rejection, not a useful signal.
  */
-export async function runDetached<TInput extends DetachedJobInput>({
+export async function runDetached({
   name,
   jobId,
-  input,
+  message,
+  delayMs,
   carrier,
   logger,
-}: DetachedJobOptions<TInput>): Promise<DetachedJobResult<TInput>> {
+}: DetachedJobOptions): Promise<DetachedJobResult> {
   await spans.withAsyncSpan(
-    `${name}-job: ${input.delayMs ?? 0}ms`,
+    `${name}-job: ${delayMs ?? 0}ms`,
     //await spans.withConsumerSpan(
     // {
     //   operation: ,
@@ -55,10 +59,10 @@ export async function runDetached<TInput extends DetachedJobInput>({
     // },
     async () => {
       try {
-        if (input.delayMs) {
-          await new Promise((resolve) => setTimeout(resolve, input.delayMs));
+        if (delayMs) {
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
         }
-        logger.log(`${name} job ${jobId} processed: ${input.message}`);
+        logger.log(`${name} job ${jobId} processed: ${message}`);
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err));
         logger.error(
@@ -69,5 +73,5 @@ export async function runDetached<TInput extends DetachedJobInput>({
       }
     },
   );
-  return { ...input, jobId };
+  return { message, delayMs, jobId };
 }

@@ -2,11 +2,14 @@ import { randomUUID } from "node:crypto";
 import { Injectable, Logger, type OnModuleDestroy } from "@nestjs/common";
 import { McpTool } from "@playground/nestjs-mcp";
 import {
+  createSpanHelpers,
   injectContext,
   type MessageHeaders,
 } from "@playground/otel-extensions";
 import { z } from "zod";
 import { runDetached, type DetachedJobResult } from "./detached-job.js";
+
+const spans = createSpanHelpers("@playground/mcp-playground");
 
 const fireForgetInput = z.object({
   message: z.string().min(1).describe("Payload to hand to the detached job."),
@@ -48,34 +51,37 @@ export class FireForgetTools implements OnModuleDestroy {
   })
   async fireForget(input: FireForgetInput): Promise<FireForgetResult> {
     const jobId = randomUUID();
+    spans.withAsyncSpan(`fire-forget: ${input.delayMs ?? 0}ms`, async () => {
+      // Capture the CALLER's span context now, while the `tool.fire-forget` span
+      // is still active. Once this method returns, the request span ends and the
+      // active context is gone — reading it from inside the detached job would
+      // yield whatever (if anything) happens to be active on that turn of the
+      // event loop.
+      const carrier: MessageHeaders = {};
+      injectContext(carrier);
 
-    // Capture the CALLER's span context now, while the `tool.fire-forget` span
-    // is still active. Once this method returns, the request span ends and the
-    // active context is gone — reading it from inside the detached job would
-    // yield whatever (if anything) happens to be active on that turn of the
-    // event loop.
-    const carrier: MessageHeaders = {};
-    injectContext(carrier);
+      const job1: Promise<DetachedJobResult<FireForgetInput>> = this.runJob(
+        "A",
+        jobId,
+        input,
+        carrier,
+      );
+      this.inFlight.add(job1);
+      void job1.finally(() => this.inFlight.delete(job1));
 
-    const job1: Promise<DetachedJobResult<FireForgetInput>> = this.runJob(
-      jobId,
-      input,
-      carrier,
-    );
-    this.inFlight.add(job1);
-    void job1.finally(() => this.inFlight.delete(job1));
+      const job2: Promise<DetachedJobResult<FireForgetInput>> = this.runJob(
+        "B",
+        jobId,
+        { ...input, delayMs: input.delayMs ?? 0 + 1000 },
+        carrier,
+      );
+      this.inFlight.add(job2);
+      void job2.finally(() => this.inFlight.delete(job2));
 
-    const job2: Promise<DetachedJobResult<FireForgetInput>> = this.runJob(
-      jobId,
-      { ...input, delayMs: input.delayMs ?? 0 + 1000 },
-      carrier,
-    );
-    this.inFlight.add(job2);
-    void job2.finally(() => this.inFlight.delete(job2));
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
-    await new Promise((resolve) => setTimeout(resolve, 100));
-
-    this.logger.log(`fire-forget accepted job ${jobId}`);
+      this.logger.log(`fire-forget accepted job ${jobId}`);
+    });
     return { accepted: true, jobId };
   }
 
@@ -90,12 +96,13 @@ export class FireForgetTools implements OnModuleDestroy {
   }
 
   private runJob(
+    name: string,
     jobId: string,
     input: FireForgetInput,
     carrier: MessageHeaders,
   ): Promise<DetachedJobResult<FireForgetInput>> {
     return runDetached({
-      name: "fire-forget",
+      name,
       jobId,
       input,
       carrier,

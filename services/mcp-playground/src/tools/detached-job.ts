@@ -44,7 +44,7 @@ export async function runDetached<TInput extends DetachedJobInput>({
   logger,
 }: DetachedJobOptions<TInput>): Promise<DetachedJobResult<TInput>> {
   await spans.withAsyncSpan(
-    `${name}-job`,
+    `${name}-job: ${input.delayMs ?? 0}ms`,
     //await spans.withConsumerSpan(
     // {
     //   operation: ,

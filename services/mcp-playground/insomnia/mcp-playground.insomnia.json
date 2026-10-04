@@ -1,0 +1,52 @@
+{
+  "type": "mcpClient.insomnia/5.0",
+  "schema_version": "5.1",
+  "name": "mcp-playground",
+  "meta": {
+    "id": "wrk_mcpplayground0000000000000001",
+    "description": "MCP client for the mcp-playground service. Tools: fire-forget, nested-response, await-response."
+  },
+  "mcpRequest": {
+    "name": "mcp-playground",
+    "url": "{{ _.base_url }}/mcp",
+    "transportType": "streamable-http",
+    "headers": [],
+    "authentication": {},
+    "meta": {
+      "id": "mcp-req_mcpplayground00000000001"
+    },
+    "env": [],
+    "roots": []
+  },
+  "environments": {
+    "name": "Base Environment",
+    "meta": {
+      "id": "env_mcpplayground0000000000000001"
+    },
+    "data": {
+      "base_url": "http://localhost:3000"
+    },
+    "subEnvironments": [
+      {
+        "name": "local (pnpm start)",
+        "meta": {
+          "id": "env_mcpplayground0000000000000002"
+        },
+        "data": {
+          "base_url": "http://localhost:3000"
+        },
+        "color": "#7d69cb"
+      },
+      {
+        "name": "docker compose",
+        "meta": {
+          "id": "env_mcpplayground0000000000000003"
+        },
+        "data": {
+          "base_url": "http://localhost:3100"
+        },
+        "color": "#2f9e44"
+      }
+    ]
+  }
+}
